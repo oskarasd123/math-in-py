@@ -1,0 +1,304 @@
+#!/bin/python3
+import sys
+import readline
+import atexit
+import os
+import math
+
+HISTORY_FILE = os.path.expanduser('~/.pymath_history')
+HISTORY_SIZE = 1000
+
+
+equation = " ".join(sys.argv[1:])
+Any = type
+
+operands = "^*/+-%"
+
+class Operand:
+    def __init__(self):
+        pass
+
+    def solve(self):
+        pass
+
+class add(Operand):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+    
+    def solve(self):
+        a = self.a
+        b = self.b
+        if isinstance(a, Operand):
+            a = a.solve()
+        if isinstance(b, Operand):
+            b = b.solve()
+        return a + b
+
+    
+    def __repr__(self):
+        return f"({self.a} + {self.b})"
+
+class sub(Operand):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+    
+    def solve(self):
+        a = self.a
+        b = self.b
+        if isinstance(a, Operand):
+            a = a.solve()
+        if isinstance(b, Operand):
+            b = b.solve()
+        return a - b
+    
+    def __repr__(self):
+        return f"({self.a} - {self.b})"
+
+class mul(Operand):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+    
+    def solve(self):
+        a = self.a
+        b = self.b
+        if isinstance(a, Operand):
+            a = a.solve()
+        if isinstance(b, Operand):
+            b = b.solve()
+        return a * b
+    
+    def __repr__(self):
+        return f"({self.a} * {self.b})"
+
+class div(Operand):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+    
+    def solve(self):
+        a = self.a
+        b = self.b
+        if isinstance(a, Operand):
+            a = a.solve()
+        if isinstance(b, Operand):
+            b = b.solve()
+        return a / b
+
+    def __repr__(self):
+        return f"({self.a} / {self.b})"
+
+class pow(Operand):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+    
+    def solve(self):
+        a = self.a
+        b = self.b
+        if isinstance(a, Operand):
+            a = a.solve()
+        if isinstance(b, Operand):
+            b = b.solve()
+        return a ** b
+    
+    def __repr__(self):
+        return f"({self.a} ^ {self.b})"
+
+class mod(Operand):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+    
+    def solve(self):
+        a = self.a
+        b = self.b
+        if isinstance(a, Operand):
+            a = a.solve()
+        if isinstance(b, Operand):
+            b = b.solve()
+        return a % b
+    
+    def __repr__(self):
+        return f"({self.a} % {self.b})"
+
+
+def eat_str(what : str, text : str):
+    if text.startswith(what):
+        return True, text[len(what):]
+    return None, text
+
+def parse_parens(inner : callable):
+    def parens_p(text):
+        ret, right = eat_str("(", text)
+        if ret:
+            inner_obj, right = inner(right)
+            if inner_obj is not None:
+                ret, right = eat_str(")", right)
+                if ret:
+                    return inner_obj, right
+        return None, text
+    return parens_p
+
+def try_parse_multiple(text, *parsers) -> tuple[Any | None, str]:
+    for parser in parsers:
+        ret, right = parser(text)
+        if ret is not None:
+            return ret, right
+    return None, text
+
+def parse_number(text : str):
+    #print(text)
+    imag = False
+    neg = False
+    length = 0
+    if text.startswith("-"):
+        neg = True
+        text = text[1:]
+    if text.lower().startswith("pi"):
+        return math.pi * (-1 if neg else 1), text[2:]
+    elif text.lower().startswith("e"):
+        return math.e * (-1 if neg else 1), text[1:]
+    elif text.lower().startswith("tau"):
+        return math.tau * (-1 if neg else 1), text[2:]
+    elif text.lower().startswith("phi"):
+        return (1+math.sqrt(5))/2 * (-1 if neg else 1), text[3:]
+    elif text.lower().startswith("j"):
+        return 1j * (-1 if neg else 1), text[1:]
+    else:
+        number = ""
+        for c in text:
+            if c in "0123456789.":
+                number += c
+                length += 1
+            elif c == "j":
+                imag = True
+                length += 1
+                break
+            else:
+                break
+        if number:
+            number = float(number) * (1j if imag else 1) * (-1 if neg else 1)
+            return number, text[length:]
+    return None, text
+
+def parse_operation(text):
+    if text:
+        if text[0] in operands:
+            return text[0], text[1:]
+    return None, text
+
+def merge_operators(args : list, operators : list):
+    assert len(args) == len(operators) + 1
+    while True:
+        place = -1
+        constructor_class = None
+        for operand, constructor in zip("^/*+-%", [pow, div, mul, add, sub, mod]):
+            try:
+                place = operators.index(operand)
+                constructor_class = constructor
+                break
+            except:
+                pass
+        if place != -1:
+            a, b = args[place], args.pop(place+1)
+            c = constructor_class(a, b)
+            args.pop(place)
+            args.insert(place, c)
+            operators.pop(place)
+        else:
+            break
+    return args[0]
+
+def parse_atom(text):
+    return try_parse_multiple(text, parse_number, parse_parens(parse_equation))        
+
+def parse_arithmetic(text):
+    a, right = parse_atom(text)
+    if a is None:
+        return None, text
+    args = [a]
+    operators = []
+    while True:
+        op, right_ = parse_operation(right)
+        if op is None:
+            break
+        arg, right_ = parse_atom(right_)
+        if arg is None:
+            break
+        operators.append(op)
+        args.append(arg)
+        right = right_
+    return merge_operators(args, operators), right
+    
+
+def parse_equation(text):
+    return try_parse_multiple(text, parse_arithmetic, parse_atom) # parse_parens(parse_equation)
+
+
+
+# Load previous history from the file if it exists
+if os.path.exists(HISTORY_FILE):
+    #print(f"Loading history from {HISTORY_FILE}...")
+    readline.read_history_file(HISTORY_FILE)
+
+# Set the maximum number of items in the history
+readline.set_history_length(HISTORY_SIZE)
+
+# Register a function to save the history when the script exits
+atexit.register(readline.write_history_file, HISTORY_FILE)
+
+# Optional: Set a different completion/editing mode if desired (e.g., 'vi')
+# readline.set_editing_mode('emacs') # Default, or 'vi'
+
+
+def solve_equation(equation : int | float | complex | Operand):
+    value = None
+    if isinstance(equation, Operand):
+        value = equation.solve()
+    elif isinstance(equation, (int, float, complex)):
+        value = equation
+    if value is not None:
+        if isinstance(value, complex):
+            if abs(value.imag) < abs(value.real)*1e-7:
+                value = value.real
+        if isinstance(value, float):
+            if abs(value - round(value)) < 1e-10 and abs(value) > 0.5:
+                value = round(value)
+    return value
+
+
+eq, right = parse_equation(equation)
+if eq:
+    value = solve_equation(eq)
+    if value:
+        print(f"= {value}")
+    else:
+        print(f"=>error: {equation}")
+    if right:
+        print(f"unparsed: {right}")
+    exit()
+
+
+try:
+    while True:
+        if not equation:
+            equation = input("» ")
+        equation, right = parse_equation(equation)
+        value = solve_equation(equation)
+        if value:
+            print(f"= {value}")
+        else:
+            print(f"=>error: {equation}")
+        if right:
+            print(f"unparsed: {right}")
+        equation = None
+except KeyboardInterrupt:
+    print()
+    pass
+except EOFError: # Ctrl+D
+    print()
+
+
