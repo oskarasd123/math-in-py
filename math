@@ -154,6 +154,7 @@ def parse_number(text : str):
     imag = False
     neg = False
     length = 0
+    global equations
     if text.startswith("-"):
         neg = True
         text = text[1:]
@@ -168,20 +169,28 @@ def parse_number(text : str):
     elif text.lower().startswith("j"):
         return 1j * (-1 if neg else 1), text[1:]
     else:
-        number = ""
-        for c in text:
-            if c in "0123456789.":
-                number += c
-                length += 1
-            elif c == "j":
-                imag = True
-                length += 1
-                break
-            else:
-                break
-        if number:
-            number = float(number) * (1j if imag else 1) * (-1 if neg else 1)
-            return number, text[length:]
+        keys = [key for key in equations if text.startswith(key)]
+        if keys:
+            lengths = list(map(len, keys))
+            index = lengths.index(max(lengths))
+            key = keys[index] # take the longest key
+            value = equations[key]
+            return value, text[len(key):]
+        else:
+            number = ""
+            for c in text:
+                if c in "0123456789.":
+                    number += c
+                    length += 1
+                elif c == "j":
+                    imag = True
+                    length += 1
+                    break
+                else:
+                    break
+            if number:
+                number = float(number) * (1j if imag else 1) * (-1 if neg else 1)
+                return number, text[length:]
     return None, text
 
 def parse_operation(text):
@@ -213,19 +222,19 @@ def merge_operators(args : list, operators : list):
     return args[0]
 
 def parse_atom(text):
-    return try_parse_multiple(text, parse_number, parse_parens(parse_equation))        
+    return try_parse_multiple(text, parse_number, parse_parens(parse_arithmetic))        
 
-def parse_arithmetic(text):
-    a, right = parse_atom(text)
+def parse_series(text):
+    a, right = parse_atom(text.strip())
     if a is None:
         return None, text
     args = [a]
     operators = []
     while True:
-        op, right_ = parse_operation(right)
+        op, right_ = parse_operation(right.strip())
         if op is None:
             break
-        arg, right_ = parse_atom(right_)
+        arg, right_ = parse_atom(right_.strip())
         if arg is None:
             break
         operators.append(op)
@@ -234,32 +243,36 @@ def parse_arithmetic(text):
     return merge_operators(args, operators), right
     
 
-def parse_equation(text):
-    return try_parse_multiple(text, parse_arithmetic, parse_atom) # parse_parens(parse_equation)
+def parse_arithmetic(text):
+    return try_parse_multiple(text, parse_series, parse_atom)
 
 
+def parse_equation(text : str):
+    parts = text.split("=")
+    if len(parts) == 2:
+        symbol, value = parts
+        symbol = symbol.strip()
+        value, right = parse_arithmetic(value.strip())
+        if symbol is not None and value is not None:
+            return (symbol, value), right
+    return None, text
 
-# Load previous history from the file if it exists
+
 if os.path.exists(HISTORY_FILE):
-    #print(f"Loading history from {HISTORY_FILE}...")
     readline.read_history_file(HISTORY_FILE)
-
-# Set the maximum number of items in the history
 readline.set_history_length(HISTORY_SIZE)
-
-# Register a function to save the history when the script exits
 atexit.register(readline.write_history_file, HISTORY_FILE)
 
 # Optional: Set a different completion/editing mode if desired (e.g., 'vi')
 # readline.set_editing_mode('emacs') # Default, or 'vi'
 
 
-def solve_equation(equation : int | float | complex | Operand):
+def solve_arithmetic(math : int | float | complex | Operand):
     value = None
-    if isinstance(equation, Operand):
-        value = equation.solve()
-    elif isinstance(equation, (int, float, complex)):
-        value = equation
+    if isinstance(math, Operand):
+        value = math.solve()
+    elif isinstance(math, (int, float, complex)):
+        value = math
     if value is not None:
         if isinstance(value, complex):
             if abs(value.imag) < abs(value.real)*1e-7:
@@ -269,10 +282,13 @@ def solve_equation(equation : int | float | complex | Operand):
                 value = round(value)
     return value
 
+equations = {}
 
-eq, right = parse_equation(equation)
+
+
+eq, right = parse_arithmetic(equation)
 if eq:
-    value = solve_equation(eq)
+    value = solve_arithmetic(eq)
     if value:
         print(f"= {value}")
     else:
@@ -286,14 +302,26 @@ try:
     while True:
         if not equation:
             equation = input("» ")
-        equation, right = parse_equation(equation)
-        value = solve_equation(equation)
-        if value:
-            print(f"= {value}")
+        eq, right = parse_equation(equation)
+        if eq is not None:
+            symbol, arithmetic = eq
+            value = solve_arithmetic(arithmetic)
+            if value is not None:
+                equations[symbol] = value
+                print(f"{symbol} = {value}")
+            else:
+                print(f">error: {eq}")
+            if right:
+                print(f"unparsed: {right}")
         else:
-            print(f"=>error: {equation}")
-        if right:
-            print(f"unparsed: {right}")
+            eq, right = parse_arithmetic(equation)
+            value = solve_arithmetic(eq)
+            if value is not None:
+                print(f"= {value}")
+            else:
+                print(f">error: {eq}")
+            if right:
+                print(f"unparsed: {right}")
         equation = None
 except KeyboardInterrupt:
     print()
