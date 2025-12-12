@@ -11,8 +11,10 @@ HISTORY_SIZE = 1000
 
 equation = " ".join(sys.argv[1:])
 Any = type
+parser = type
 
-operands = "^*/+-%"
+
+operands = ["^", "*", "/", "+", "-", "%"] # "^*/+-%"
 
 class Operand:
     def __init__(self):
@@ -128,7 +130,7 @@ class mod(Operand):
 def eat_str(what : str, text : str):
     if text.startswith(what):
         return True, text[len(what):]
-    return None, text
+    return None, f"cant eat {what}"
 
 def parse_parens(inner : callable):
     def parens_p(text):
@@ -139,22 +141,33 @@ def parse_parens(inner : callable):
                 ret, right = eat_str(")", right)
                 if ret:
                     return inner_obj, right
+            else:
+                return None, right
         return None, text
     return parens_p
 
 def try_parse_multiple(text, *parsers) -> tuple[Any | None, str]:
+    fails = []
     for parser in parsers:
         ret, right = parser(text)
         if ret is not None:
             return ret, right
-    return None, text
+        else:
+            fails.append(right)
+    return None, f"no parser succeded: {fails}"
+
+def case_parse(text, cases : list[tuple[callable, parser]]):
+    for case_check, case_parser in cases:
+        if case_check(text):
+            return case_parser(text)
+    return None, "no cases matched"
 
 def parse_number(text : str):
-    #print(text)
     imag = False
     neg = False
     length = 0
-    global equations
+    if len(text) == 0:
+        return None, "recieved empty string"
     if text.startswith("-"):
         neg = True
         text = text[1:]
@@ -179,7 +192,7 @@ def parse_number(text : str):
         else:
             number = ""
             for c in text:
-                if c in "0123456789.":
+                if c in "0123456789._":
                     number += c
                     length += 1
                 elif c == "j":
@@ -189,15 +202,19 @@ def parse_number(text : str):
                 else:
                     break
             if number:
-                number = float(number) * (1j if imag else 1) * (-1 if neg else 1)
+                try:
+                    value = int(number)
+                except:
+                    value = float(number)
+                number = value * (1j if imag else 1) * (-1 if neg else 1)
                 return number, text[length:]
-    return None, text
+    return None, f"no pattern matches for number: {text.split(" ")[0]}"
 
 def parse_operation(text):
     if text:
         if text[0] in operands:
             return text[0], text[1:]
-    return None, text
+    return None, f"{text[0]} is not an operand" if len(text) > 0 else "recieved empty string"
 
 def merge_operators(args : list, operators : list):
     assert len(args) == len(operators) + 1
@@ -222,12 +239,13 @@ def merge_operators(args : list, operators : list):
     return args[0]
 
 def parse_atom(text):
-    return try_parse_multiple(text, parse_number, parse_parens(parse_arithmetic))        
+    return case_parse(text, [(lambda x : (x.strip().startswith("(")), parse_parens(parse_arithmetic)), (lambda x : (True), parse_number)])
+    #return try_parse_multiple(text, parse_number, parse_parens(parse_arithmetic))
 
 def parse_series(text):
     a, right = parse_atom(text.strip())
     if a is None:
-        return None, text
+        return None, f"can't parse atom for series: {text}"
     args = [a]
     operators = []
     while True:
@@ -241,7 +259,14 @@ def parse_series(text):
         args.append(arg)
         right = right_
     return merge_operators(args, operators), right
-    
+
+def is_symbol(symbol):
+    if symbol[0] in "1234567890 ":
+        return False
+    if any([c in symbol for c in " ()[]()[]/*+-."]):
+        return False
+    return True
+
 
 def parse_arithmetic(text):
     return try_parse_multiple(text, parse_series, parse_atom)
@@ -252,10 +277,12 @@ def parse_equation(text : str):
     if len(parts) == 2:
         symbol, value = parts
         symbol = symbol.strip()
+        if not is_symbol(symbol):
+            return None, f"symbol is invalid: {symbol}"
         value, right = parse_arithmetic(value.strip())
         if symbol is not None and value is not None:
             return (symbol, value), right
-    return None, text
+    return None, "too many parts"
 
 
 if os.path.exists(HISTORY_FILE):
@@ -285,46 +312,46 @@ def solve_arithmetic(math : int | float | complex | Operand):
 equations = {}
 
 
-
-eq, right = parse_arithmetic(equation)
-if eq:
+if equation:
+    eq, right = parse_arithmetic(equation)
     value = solve_arithmetic(eq)
     if value:
-        print(f"= {value}")
+        print(f"{value}")
+        if right:
+            print(f"unparsed: {right}")
     else:
-        print(f"=>error: {equation}")
-    if right:
-        print(f"unparsed: {right}")
+        print(f">error: {right}")
     exit()
 
 
 try:
     while True:
-        if not equation:
-            equation = input("» ")
-        eq, right = parse_equation(equation)
-        if eq is not None:
+        equation = input("» ")
+        if "=" in equation:
+            eq, right = parse_equation(equation)
+            if eq is None:
+                print(f">error: {right}")
+                continue
             symbol, arithmetic = eq
             value = solve_arithmetic(arithmetic)
             if value is not None:
                 equations[symbol] = value
                 print(f"{symbol} = {value}")
+                if right:
+                    print(f"unparsed: {right}")
             else:
-                print(f">error: {eq}")
-            if right:
-                print(f"unparsed: {right}")
+                print(f">error: {right}")
         else:
             eq, right = parse_arithmetic(equation)
             value = solve_arithmetic(eq)
             if value is not None:
                 print(f"= {value}")
+                if right:
+                    print(f"unparsed: {right}")
             else:
-                print(f">error: {eq}")
-            if right:
-                print(f"unparsed: {right}")
-        equation = None
+                print(f">error: {right}")
 except KeyboardInterrupt:
-    print()
+    print("^C")
     pass
 except EOFError: # Ctrl+D
     print()
