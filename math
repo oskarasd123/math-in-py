@@ -14,6 +14,9 @@ Any = type
 
 operands = "^*/+-%"
 
+power_characters = ["K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"]
+power_base = 1000
+
 class Operand:
     def __init__(self):
         pass
@@ -149,6 +152,7 @@ def try_parse_multiple(text, *parsers) -> tuple[Any | None, str]:
             return ret, right
     return None, text
 
+
 def parse_number(text : str):
     #print(text)
     imag = False
@@ -178,9 +182,14 @@ def parse_number(text : str):
             return value, text[len(key):]
         else:
             number = ""
+            power = 1
             for c in text:
                 if c in "0123456789.":
                     number += c
+                    length += 1
+                elif c in power_characters and power == 1:
+                    p = power_characters.index(c)
+                    power = power_base**(p+1)
                     length += 1
                 elif c == "j":
                     imag = True
@@ -189,7 +198,7 @@ def parse_number(text : str):
                 else:
                     break
             if number:
-                number = float(number) * (1j if imag else 1) * (-1 if neg else 1)
+                number = float(number) * (1j if imag else 1) * (-1 if neg else 1) * power
                 return number, text[length:]
     return None, text
 
@@ -278,8 +287,14 @@ def solve_arithmetic(math : int | float | complex | Operand):
             if abs(value.imag) < abs(value.real)*1e-7:
                 value = value.real
         if isinstance(value, float):
+            power_character = -1
+            while value > power_base*4 and power_character < len(power_characters)-1:
+                value = value/power_base
+                power_character += 1
             if abs(value - round(value)) < 1e-10 and abs(value) > 0.5:
                 value = round(value)
+            if power_character >= 0:
+                value = f"{value}" + power_characters[power_character]
     return value
 
 equations = {}
